@@ -1,0 +1,17 @@
+services:
+  backupserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000" # Пробрасываем порт 5000
+    volumes:
+      - ./backup:/app/backup # Монтируем локальную папку backup в контейнер
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    networks:
+      - backup_network
+
+networks:
+  backup_network:
+    driver: bridge

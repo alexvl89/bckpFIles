@@ -26,8 +26,16 @@ namespace BackupServer
 
             try
             {
+                var backupFolder = Path.Combine(Directory.GetCurrentDirectory(), "backup");
+                if (!Directory.Exists(backupFolder))
+                {
+                    Directory.CreateDirectory(backupFolder);
+                }
+                Console.WriteLine($"Backup folder: {backupFolder}");
+
+
                 // Путь к файлу бэкапа
-                filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "backup.db");
+                filePath = Path.Combine(backupFolder, "backup.db");
 
                 // Check if file exists, create if it doesn't
                 if (!File.Exists(filePath))
