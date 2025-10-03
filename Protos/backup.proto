@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+// Пространство имен для сгенерированного C# кода
+option csharp_namespace = "BackupServer";
+
+// Пакет для gRPC сервиса
+package backup;
+
+// Сервис для получения резервной копии
+service Backup {
+  // Получение резервной копии в потоковом режиме
+  rpc GetBackup (BackupRequest) returns (stream BackupResponse) {}
+}
+
+// Запрос для получения резервной копии (пустой)
+message BackupRequest {
+  // Зарезервировано для будущих полей
+}
+
+// Ответ, содержащий часть данных резервной копии
+message BackupResponse {
+  // Бинарные данные части файла
+  bytes data = 1;
+}
