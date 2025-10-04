@@ -12,7 +12,7 @@ namespace BackupServer
     {
 
         private readonly ILogger<BackupService> _logger;
-        private const long MaxFileSize = 1 * 1024 * 1024; 
+        private const long MaxFileSize = 1 * 1024 * 1024;
         private const int DefaultChunkSize = 1 * 1024 * 1024; // 1 MB
 
         public BackupService(ILogger<BackupService> logger)
@@ -120,54 +120,68 @@ namespace BackupServer
         /// </summary>
         /// <param name="filePath">Путь к создаваемому файлу.</param>
         /// <param name="cancellationToken">Токен отмены операции.</param>
-            private async Task CreateTemporaryFileAsync(string filePath, CancellationToken cancellationToken)
+        private async Task CreateTemporaryFileAsync(string filePath, CancellationToken cancellationToken)
+        {
+            const int bufferSize = 4 * 1024 * 1024; // Размер буфера для записи: 4 МБ
+            byte[] buffer = new byte[bufferSize];   // Буфер, заполненный нулями
+            long bytesWritten = 0;                  // Счетчик записанных байт
+
+            try
             {
-                const int bufferSize = 4 * 1024 * 1024; // Размер буфера для записи: 4 МБ
-                byte[] buffer = new byte[bufferSize];   // Буфер, заполненный нулями
-                long bytesWritten = 0;                  // Счетчик записанных байт
+                // Открываем поток для создания файла
+                using var fs = new FileStream(
+                    filePath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: bufferSize,
+                    useAsync: true);
 
-                try
+                // Записываем данные в файл до достижения нужного размера
+                while (bytesWritten < MaxFileSize)
                 {
-                    // Открываем поток для создания файла
-                    using var fs = new FileStream(
-                        filePath,
-                        FileMode.Create,
-                        FileAccess.Write,
-                        FileShare.None,
-                        bufferSize: bufferSize,
-                        useAsync: true);
+                    cancellationToken.ThrowIfCancellationRequested(); // Проверка отмены
 
-                    // Записываем данные в файл до достижения нужного размера
-                    while (bytesWritten < MaxFileSize)
+                    long remainingBytes = MaxFileSize - bytesWritten; // Сколько осталось записать
+                    int writeSize = (int)Math.Min(bufferSize, remainingBytes); // Размер текущей записи
+                    await fs.WriteAsync(buffer, 0, writeSize, cancellationToken); // Асинхронная запись
+                    bytesWritten += writeSize; // Обновляем счетчик
+
+                    // Логируем прогресс каждые 10%
+                    if ((bytesWritten * 10 / MaxFileSize) > ((bytesWritten - writeSize) * 10 / MaxFileSize))
                     {
-                        cancellationToken.ThrowIfCancellationRequested(); // Проверка отмены
-
-                        long remainingBytes = MaxFileSize - bytesWritten; // Сколько осталось записать
-                        int writeSize = (int)Math.Min(bufferSize, remainingBytes); // Размер текущей записи
-                        await fs.WriteAsync(buffer, 0, writeSize, cancellationToken); // Асинхронная запись
-                        bytesWritten += writeSize; // Обновляем счетчик
-
-                        // Логируем прогресс каждые 10%
-                        if ((bytesWritten * 10 / MaxFileSize) > ((bytesWritten - writeSize) * 10 / MaxFileSize))
-                        {
-                            _logger.LogInformation("Temporary file creation progress: {Progress:F1}% ({Bytes:F2} GB of 100 GB)",
-                                (double)bytesWritten / MaxFileSize * 100,
-                                bytesWritten / (1024.0 * 1024.0 * 1024.0));
-                        }
+                        _logger.LogInformation("Temporary file creation progress: {Progress:F1}% ({Bytes:F2} GB of 100 GB)",
+                            (double)bytesWritten / MaxFileSize * 100,
+                            bytesWritten / (1024.0 * 1024.0 * 1024.0));
                     }
+                }
 
-                    await fs.FlushAsync(cancellationToken); // Финализируем запись
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to create temporary backup file {FilePath}", filePath);
-                    // Удаляем частично созданный файл при ошибке
-                    if (File.Exists(filePath))
-                    {
-                        try { File.Delete(filePath); } catch { }
-                    }
-                    throw;
-                }
+                await fs.FlushAsync(cancellationToken); // Финализируем запись
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create temporary backup file {FilePath}", filePath);
+                // Удаляем частично созданный файл при ошибке
+                if (File.Exists(filePath))
+                {
+                    try { File.Delete(filePath); } catch { }
+                }
+                throw;
+            }
+        }
+
+        // Метод Ping для проверки доступности
+        public override Task<PingResponse> Ping(PingRequest request, ServerCallContext context)
+        {
+            return Task.FromResult(new PingResponse { Message = "Pong" });
+        }
+
+        // Метод CheckHealth для проверки состояния сервера
+        public override Task<HealthResponse> CheckHealth(HealthRequest request, ServerCallContext context)
+        {
+            // Здесь можно добавить логику проверки состояния сервера
+            // Например, проверка подключения к базе данных или хранилищу
+            return Task.FromResult(new HealthResponse { Status = "Healthy" });
+        }
     }
 }

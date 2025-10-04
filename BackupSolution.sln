@@ -1,10 +1,16 @@
-﻿Microsoft Visual Studio Solution File, Format Version 12.00
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupServer", "BackupServer\BackupServer.csproj", "{GUID1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupServer", "BackupServer\BackupServer.csproj", "{A849B32B-63B5-4049-9E9F-D4D2513E8FE0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupClient", "BackupClient\BackupClient.csproj", "{GUID2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupClient", "BackupClient\BackupClient.csproj", "{F86A95D4-198A-420B-A7A1-493BDD26747D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Элементы решения", "Элементы решения", "{754FC069-D67B-A9D7-50A1-8D1CA196D8F1}"
+	ProjectSection(SolutionItems) = preProject
+		Protos\backup.proto = Protos\backup.proto
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -12,16 +18,19 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{GUID1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{GUID1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{GUID1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{GUID1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{GUID2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{GUID2}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{GUID2}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{GUID2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A849B32B-63B5-4049-9E9F-D4D2513E8FE0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A849B32B-63B5-4049-9E9F-D4D2513E8FE0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A849B32B-63B5-4049-9E9F-D4D2513E8FE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A849B32B-63B5-4049-9E9F-D4D2513E8FE0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7D97A1DF-879A-4818-BD16-DB2560E14663}
 	EndGlobalSection
 EndGlobal

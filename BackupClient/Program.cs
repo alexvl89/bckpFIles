@@ -46,6 +46,20 @@ class Program
 
             logger.LogInformation("Requesting backup from server...");
 
+
+            // Тест Ping
+            Console.WriteLine("Testing Ping...");
+            var pingResponse = await client.PingAsync(new PingRequest());
+            Console.WriteLine($"Ping Response: {pingResponse.Message}");
+
+            // Тест CheckHealth
+            Console.WriteLine("\nTesting CheckHealth...");
+            var healthResponse = await client.CheckHealthAsync(new HealthRequest());
+            Console.WriteLine($"Health Response: {healthResponse.Status}");
+
+
+
+
             // Вызов gRPC метода с потоковым ответом
             using var call = client.GetBackup(new BackupRequest());
             var filePath = "received_backup.db";
