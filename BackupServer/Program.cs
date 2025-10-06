@@ -13,7 +13,7 @@ builder.Services.AddGrpc();
 // Настраиваем Kestrel для gRPC (HTTP/2)
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.ListenLocalhost(5000, o =>
+    options.ListenLocalhost(5001, o =>
     {
         o.Protocols = HttpProtocols.Http2;
         // Для продакшена рекомендуется включить HTTPS

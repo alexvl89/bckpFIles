@@ -16,16 +16,29 @@ service Backup {
   rpc CheckHealth (HealthRequest) returns (HealthResponse) {}
 }
 
-// Запрос для получения резервной копии (пустой)
+// Запрос для получения резервной копии
 message BackupRequest {
-  // Зарезервировано для будущих полей
+  string backup_id = 1; // Идентификатор бэкапа
 }
 
-// Ответ, содержащий часть данных резервной копии
 message BackupResponse {
-  // Бинарные данные части файла
-  bytes data = 1;
+  oneof response {
+    BackupStatus status = 1;
+    bytes data = 2;
+  }
 }
+
+message BackupStatus {
+  string status_message = 1; // Сообщение о текущем состоянии
+  int32 progress = 2;        // Процент выполнения (0-100)
+}
+
+message FileInfo {
+  string file_path = 1;      // Путь к файлу
+  string file_name = 2;      // Имя файла
+  int64 file_size = 3;       // Размер файла
+}
+
 
 
 message PingRequest {

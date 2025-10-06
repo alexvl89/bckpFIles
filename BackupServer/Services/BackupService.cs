@@ -5,183 +5,219 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
+namespace BackupServer;
 
-namespace BackupServer
+public class BackupService : Backup.BackupBase
 {
-    public class BackupService : Backup.BackupBase
+    private readonly ILogger<BackupService> _logger;
+    private const int DefaultChunkSize = 1 * 1024 * 1024; // 1 MB
+
+    public BackupService(ILogger<BackupService> logger)
     {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
 
-        private readonly ILogger<BackupService> _logger;
-        private const long MaxFileSize = 1 * 1024 * 1024;
-        private const int DefaultChunkSize = 1 * 1024 * 1024; // 1 MB
 
-        public BackupService(ILogger<BackupService> logger)
+    private async Task Sent(string data, IServerStreamWriter<BackupResponse> responseStream)
+    {
+        var status = new BackupStatus
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        }
+            StatusMessage = data,
+            Progress = 1
+        };
+        await responseStream.WriteAsync(new BackupResponse { Status = status });
+    }
 
-        public override async Task GetBackup(BackupRequest request, IServerStreamWriter<BackupResponse> responseStream, ServerCallContext context)
+    public override async Task GetBackup(BackupRequest request, IServerStreamWriter<BackupResponse> responseStream, ServerCallContext context)
+    {
+        string filePath = string.Empty;
+
+        try
         {
-            string filePath = string.Empty;
-
-            try
+            var backupFolder = Path.Combine(Directory.GetCurrentDirectory(), "backup");
+            if (!Directory.Exists(backupFolder))
             {
-                var backupFolder = Path.Combine(Directory.GetCurrentDirectory(), "backup");
-                if (!Directory.Exists(backupFolder))
+                Directory.CreateDirectory(backupFolder);
+                _logger.LogInformation("Created backup folder: {BackupFolder}", backupFolder);
+            }
+
+            filePath = Path.Combine(backupFolder, "backup.db");
+
+            // Проверка существования файла и создание, если отсутствует
+            if (!File.Exists(filePath))
+            {
+                _logger.LogInformation("Backup file {FilePath} not found. Creating temporary 100 GB file...", filePath);
+
+                await Sent($"Backup file {filePath} not found. Creating temporary 100 GB file...", responseStream);
+                await CreateTemporaryFileAsync(filePath, context.CancellationToken);
+                _logger.LogInformation("Temporary backup file created at {FilePath} with size 100 GB.", filePath);
+            }
+
+            //var fileInfo = new FileInfo(filePath);
+            var fileInfo = new System.IO.FileInfo(filePath);
+            long totalFileSize = fileInfo.Length;
+
+            // Симуляция процесса бэкапа
+            for (int i = 0; i <= 100; i += 10)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+                var status = new BackupStatus
                 {
-                    Directory.CreateDirectory(backupFolder);
+                    StatusMessage = $"Processing backup {request.BackupId}... {i}%",
+                    Progress = i
+                };
+                await responseStream.WriteAsync(new BackupResponse { Status = status });
+                await Task.Delay(1000, context.CancellationToken);
+            }
+
+            // Отправка информации о начале передачи файла
+            await responseStream.WriteAsync(new BackupResponse
+            {
+                Status = new BackupStatus
+                {
+                    StatusMessage = $"Starting file transfer for {fileInfo.Name} ({FormatFileSize(totalFileSize)})",
+                    Progress = 100
                 }
-                Console.WriteLine($"Backup folder: {backupFolder}");
+            });
 
+            // Чтение и передача файла
+            byte[] buffer = new byte[DefaultChunkSize];
+            long totalBytesRead = 0;
 
-                // Путь к файлу бэкапа
-                filePath = Path.Combine(backupFolder, "backup.db");
+            using var fileStream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: DefaultChunkSize,
+                useAsync: true);
 
-                // Check if file exists, create if it doesn't
-                if (!File.Exists(filePath))
+            while (totalBytesRead < totalFileSize)
+            {
+                context.CancellationToken.ThrowIfCancellationRequested();
+
+                int bytesRead = await fileStream.ReadAsync(buffer, 0, DefaultChunkSize, context.CancellationToken);
+                if (bytesRead == 0)
                 {
-                    _logger.LogInformation("Backup file {FilePath} not found. Creating temporary 100 GB file...", filePath);
-                    await CreateTemporaryFileAsync(filePath, context.CancellationToken);
-                    _logger.LogInformation("Temporary backup file created at {FilePath} with size 100 GB.", filePath);
-                }
-
-                // Validate file size
-                var fileInfo = new FileInfo(filePath);
-                if (fileInfo.Length > MaxFileSize)
-                {
-                    throw new RpcException(new Status(StatusCode.InvalidArgument,
-                        $"Backup file size {fileInfo.Length / (1024.0 * 1024.0 * 1024.0):F2} GB exceeds maximum allowed size of 100 GB."));
-                }
-
-                // Read and stream file
-                byte[] buffer = new byte[DefaultChunkSize];
-                long totalBytesRead = 0;
-                long totalFileSize = fileInfo.Length;
-
-                using var fileStream = new FileStream(
-                    filePath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    bufferSize: DefaultChunkSize,
-                    useAsync: true);
-
-                while (totalBytesRead < totalFileSize)
-                {
-                    context.CancellationToken.ThrowIfCancellationRequested();
-
-                    int bytesRead = await fileStream.ReadAsync(buffer, 0, DefaultChunkSize, context.CancellationToken);
-                    if (bytesRead == 0)
-                    {
-                        _logger.LogWarning("Unexpected end of file reached while reading {FilePath}", filePath);
-                        break;
-                    }
-
-                    await responseStream.WriteAsync(new BackupResponse
-                    {
-                        Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
-                    });
-
-                    totalBytesRead += bytesRead;
-
-                    // Log progress every 10%
-                    if (totalFileSize > 0 && (totalBytesRead * 10 / totalFileSize) > ((totalBytesRead - bytesRead) * 10 / totalFileSize))
-                    {
-                        _logger.LogInformation("Backup transfer progress: {Progress:F1}% ({Bytes:F2} GB of {Total:F2} GB)",
-                            (double)totalBytesRead / totalFileSize * 100,
-                            totalBytesRead / (1024.0 * 1024.0 * 1024.0),
-                            totalFileSize / (1024.0 * 1024.0 * 1024.0));
-                    }
+                    _logger.LogWarning("Unexpected end of file reached while reading {FilePath}", filePath);
+                    break;
                 }
 
-                _logger.LogInformation("Backup transfer completed. Sent {Bytes:F2} GB to client.",
-                    totalBytesRead / (1024.0 * 1024.0 * 1024.0));
+                await responseStream.WriteAsync(new BackupResponse
+                {
+                    Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
+                });
+
+                totalBytesRead += bytesRead;
+
+                // Логирование прогресса каждые ~10%
+                if (totalFileSize > 0 && (totalBytesRead * 10 / totalFileSize) > ((totalBytesRead - bytesRead) * 10 / totalFileSize))
+                {
+                    _logger.LogInformation("Backup transfer progress: {Progress:F1}% ({Bytes:F2} GB of {Total:F2} GB)",
+                        (double)totalBytesRead / totalFileSize * 100,
+                        totalBytesRead / (1024.0 * 1024.0 * 1024.0),
+                        totalFileSize / (1024.0 * 1024.0 * 1024.0));
+                }
             }
-            catch (OperationCanceledException)
+
+            // Отправка финального сообщения о завершении
+            await responseStream.WriteAsync(new BackupResponse
             {
-                _logger.LogWarning("Backup transfer cancelled by client for file {FilePath}", filePath);
-                throw new RpcException(new Status(StatusCode.Cancelled, "Request cancelled by client."));
-            }
-            catch (IOException ex)
-            {
-                _logger.LogError(ex, "IO error while processing backup file {FilePath}", filePath);
-                throw new RpcException(new Status(StatusCode.Internal, $"Failed to read or create backup file: {ex.Message}"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unexpected error while processing backup for file {FilePath}", filePath);
-                throw new RpcException(new Status(StatusCode.Internal, $"Unexpected error: {ex.Message}"));
-            }
+                Status = new BackupStatus
+                {
+                    StatusMessage = $"Backup transfer completed. Sent {FormatFileSize(totalBytesRead)}",
+                    Progress = 100
+                }
+            });
+
+            _logger.LogInformation("Backup transfer completed. Sent {Bytes:F2} GB to client.", totalBytesRead / (1024.0 * 1024.0 * 1024.0));
         }
-
-
-        /// <summary>
-        /// Асинхронно создает временный файл заданного размера (100 ГБ), заполняя его нулями.
-        /// </summary>
-        /// <param name="filePath">Путь к создаваемому файлу.</param>
-        /// <param name="cancellationToken">Токен отмены операции.</param>
-        private async Task CreateTemporaryFileAsync(string filePath, CancellationToken cancellationToken)
+        catch (OperationCanceledException)
         {
-            const int bufferSize = 4 * 1024 * 1024; // Размер буфера для записи: 4 МБ
-            byte[] buffer = new byte[bufferSize];   // Буфер, заполненный нулями
-            long bytesWritten = 0;                  // Счетчик записанных байт
-
-            try
-            {
-                // Открываем поток для создания файла
-                using var fs = new FileStream(
-                    filePath,
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.None,
-                    bufferSize: bufferSize,
-                    useAsync: true);
-
-                // Записываем данные в файл до достижения нужного размера
-                while (bytesWritten < MaxFileSize)
-                {
-                    cancellationToken.ThrowIfCancellationRequested(); // Проверка отмены
-
-                    long remainingBytes = MaxFileSize - bytesWritten; // Сколько осталось записать
-                    int writeSize = (int)Math.Min(bufferSize, remainingBytes); // Размер текущей записи
-                    await fs.WriteAsync(buffer, 0, writeSize, cancellationToken); // Асинхронная запись
-                    bytesWritten += writeSize; // Обновляем счетчик
-
-                    // Логируем прогресс каждые 10%
-                    if ((bytesWritten * 10 / MaxFileSize) > ((bytesWritten - writeSize) * 10 / MaxFileSize))
-                    {
-                        _logger.LogInformation("Temporary file creation progress: {Progress:F1}% ({Bytes:F2} GB of 100 GB)",
-                            (double)bytesWritten / MaxFileSize * 100,
-                            bytesWritten / (1024.0 * 1024.0 * 1024.0));
-                    }
-                }
-
-                await fs.FlushAsync(cancellationToken); // Финализируем запись
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to create temporary backup file {FilePath}", filePath);
-                // Удаляем частично созданный файл при ошибке
-                if (File.Exists(filePath))
-                {
-                    try { File.Delete(filePath); } catch { }
-                }
-                throw;
-            }
+            _logger.LogWarning("Backup transfer cancelled by client for file {FilePath}", filePath);
+            throw new RpcException(new Status(StatusCode.Cancelled, "Request cancelled by client."));
         }
-
-        // Метод Ping для проверки доступности
-        public override Task<PingResponse> Ping(PingRequest request, ServerCallContext context)
+        catch (IOException ex)
         {
-            return Task.FromResult(new PingResponse { Message = "Pong" });
+            _logger.LogError(ex, "IO error while processing backup file {FilePath}", filePath);
+            throw new RpcException(new Status(StatusCode.Internal, $"Failed to read or create backup file: {ex.Message}"));
         }
-
-        // Метод CheckHealth для проверки состояния сервера
-        public override Task<HealthResponse> CheckHealth(HealthRequest request, ServerCallContext context)
+        catch (Exception ex)
         {
-            // Здесь можно добавить логику проверки состояния сервера
-            // Например, проверка подключения к базе данных или хранилищу
-            return Task.FromResult(new HealthResponse { Status = "Healthy" });
+            _logger.LogError(ex, "Unexpected error while processing backup for file {FilePath}", filePath);
+            throw new RpcException(new Status(StatusCode.Internal, $"Unexpected error: {ex.Message}"));
         }
+    }
+
+    private async Task CreateTemporaryFileAsync(string filePath, CancellationToken cancellationToken)
+    {
+        const int bufferSize = 4 * 1024 * 1024; // 4 MB
+        const long targetFileSize = 100L * 1024 * 1024; // 100 GB
+        byte[] buffer = new byte[bufferSize];
+        long bytesWritten = 0;
+
+        try
+        {
+            using var fs = new FileStream(
+                filePath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: bufferSize,
+                useAsync: true);
+
+            while (bytesWritten < targetFileSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                long remainingBytes = targetFileSize - bytesWritten;
+                int writeSize = (int)Math.Min(bufferSize, remainingBytes);
+                await fs.WriteAsync(buffer, 0, writeSize, cancellationToken);
+                bytesWritten += writeSize;
+
+                if ((bytesWritten * 10 / targetFileSize) > ((bytesWritten - writeSize) * 10 / targetFileSize))
+                {
+                    _logger.LogInformation("Temporary file creation progress: {Progress:F1}% ({Bytes:F2} GB of 100 GB)",
+                        (double)bytesWritten / targetFileSize * 100,
+                        bytesWritten / (1024.0 * 1024.0 * 1024.0));
+                }
+            }
+
+            await fs.FlushAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create temporary backup file {FilePath}", filePath);
+            if (File.Exists(filePath))
+            {
+                try { File.Delete(filePath); } catch { }
+            }
+            throw;
+        }
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        const long KB = 1024;
+        const long MB = 1024 * KB;
+        const long GB = 1024 * MB;
+
+        if (bytes >= GB)
+            return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+        else if (bytes >= MB)
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
+        else if (bytes >= KB)
+            return $"{bytes / 1024.0:F2} KB";
+        else
+            return $"{bytes:F0} bytes";
+    }
+
+    public override Task<PingResponse> Ping(PingRequest request, ServerCallContext context)
+    {
+        return Task.FromResult(new PingResponse { Message = "Pong" });
+    }
+
+    public override Task<HealthResponse> CheckHealth(HealthRequest request, ServerCallContext context)
+    {
+        return Task.FromResult(new HealthResponse { Status = "Healthy" });
     }
 }
