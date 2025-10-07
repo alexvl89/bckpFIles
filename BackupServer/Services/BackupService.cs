@@ -1,3 +1,4 @@
+using BackupServer.Services;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using System;
@@ -43,13 +44,22 @@ public class BackupService : Backup.BackupBase
 
             filePath = Path.Combine(backupFolder, "backup.db");
 
+            if (File.Exists(filePath))
+            {
+                _logger.LogInformation("Deleting existing backup file: {FilePath}", filePath);
+                File.Delete(filePath);
+            }
+
             // Проверка существования файла и создание, если отсутствует
             if (!File.Exists(filePath))
             {
                 _logger.LogInformation("Backup file {FilePath} not found. Creating temporary 100 GB file...", filePath);
 
                 await Sent($"Backup file {filePath} not found. Creating temporary 100 GB file...", responseStream);
-                await CreateTemporaryFileAsync(filePath, context.CancellationToken);
+
+                await BackupServiceWithDocker.Start(filePath, responseStream);
+
+                //await CreateTemporaryFileAsync(filePath, context.CancellationToken);
                 _logger.LogInformation("Temporary backup file created at {FilePath} with size 100 GB.", filePath);
             }
 
