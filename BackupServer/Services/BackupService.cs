@@ -11,11 +11,13 @@ namespace BackupServer;
 public class BackupService : Backup.BackupBase
 {
     private readonly ILogger<BackupService> _logger;
+    private readonly  IBackupServiceLocal backupLocal;
     private const int DefaultChunkSize = 1 * 1024 * 1024; // 1 MB
 
-    public BackupService(ILogger<BackupService> logger)
+    public BackupService(ILogger<BackupService> logger, IBackupServiceLocal backupLocal)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.backupLocal = backupLocal;
     }
 
 
@@ -57,7 +59,9 @@ public class BackupService : Backup.BackupBase
 
                 await Sent($"Backup file {filePath} not found. Creating temporary 100 GB file...", responseStream);
 
-                await BackupServiceWithDocker.Start(filePath, responseStream);
+                //await BackupServiceWithDocker.Start(filePath, responseStream);
+                await backupLocal.Start(filePath, responseStream);
+
 
                 //await CreateTemporaryFileAsync(filePath, context.CancellationToken);
                 _logger.LogInformation("Temporary backup file created at {FilePath} with size 100 GB.", filePath);

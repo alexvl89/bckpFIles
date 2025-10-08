@@ -1,14 +1,24 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.AspNetCore.Hosting;
 using BackupServer;
+using BackupServer.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
+
+// Добавление конфигурации
+builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
 // Добавляем gRPC сервисы
 builder.Services.AddGrpc();
+builder.Services.AddSingleton<IBackupServiceLocal, BackupLocal>();
+
 
 // Настраиваем Kestrel для gRPC (HTTP/2)
 builder.WebHost.ConfigureKestrel(options =>

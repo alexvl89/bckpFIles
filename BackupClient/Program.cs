@@ -37,9 +37,9 @@ namespace BackupClient
                 logger.LogInformation("Requesting backup from server...");
 
                 // Тест Ping
-                Console.WriteLine("Testing Ping...");
+                logger.LogInformation("Тестируем Ping");
                 var pingResponse = await client.PingAsync(new PingRequest());
-                Console.WriteLine($"Ping Response: {pingResponse.Message}");
+                logger.LogInformation($"Ответ Ping: {pingResponse.Message}");
 
                 // Тест CheckHealth
                 Console.WriteLine("\nTesting CheckHealth...");
