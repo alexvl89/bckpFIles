@@ -22,13 +22,15 @@ namespace BackupClient
 
             try
             {
+                AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
                 var handler = new HttpClientHandler
                 {
                     ServerCertificateCustomValidationCallback =
                         HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
                 };
 
-                using var channel = GrpcChannel.ForAddress("http://localhost:5001", new GrpcChannelOptions
+                using var channel = GrpcChannel.ForAddress("https://192.168.80.145:5001", new GrpcChannelOptions
                 {
                     HttpHandler = handler
                 });

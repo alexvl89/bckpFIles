@@ -8,11 +8,60 @@ using System.Threading.Tasks;
 
 namespace BackupServer;
 
+// Класс для передачи данных о прогрессе
+public class BackupProgressEventArgs : EventArgs
+{
+    public string StatusMessage { get; }
+    public double Progress { get; } // В процентах (0-100)
+    public long BytesProcessed { get; }
+    public long TotalBytes { get; }
+
+    public BackupProgressEventArgs(string statusMessage, double progress, long bytesProcessed = 0, long totalBytes = 0)
+    {
+        StatusMessage = statusMessage;
+        Progress = progress;
+        BytesProcessed = bytesProcessed;
+        TotalBytes = totalBytes;
+    }
+}
+
 public class BackupService : Backup.BackupBase
 {
     private readonly ILogger<BackupService> _logger;
-    private readonly  IBackupServiceLocal backupLocal;
+    private readonly IBackupServiceLocal backupLocal;
     private const int DefaultChunkSize = 1 * 1024 * 1024; // 1 MB
+
+    // Событие для уведомления о прогрессе
+    public delegate Task AsyncEventHandler<TEventArgs>(object sender, TEventArgs e);
+    public event AsyncEventHandler<BackupProgressEventArgs> OnProgress;
+
+    // Метод для вызова асинхронного события
+    private async Task ReportProgressAsync(string message, double progress, long bytesProcessed = 0, long totalBytes = 0, CancellationToken cancellationToken = default)
+    {
+        var eventArgs = new BackupProgressEventArgs(message, progress, bytesProcessed, totalBytes);
+        var handlers = OnProgress;
+
+        if (handlers != null)
+        {
+            // Получаем всех подписчиков
+            var invocationList = handlers.GetInvocationList();
+
+            // Вызываем каждого подписчика асинхронно
+            foreach (var handler in invocationList)
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await ((AsyncEventHandler<BackupProgressEventArgs>)handler).Invoke(this, eventArgs);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in OnProgress event handler for message: {Message}", message);
+                }
+            }
+        }
+    }
+
 
     public BackupService(ILogger<BackupService> logger, IBackupServiceLocal backupLocal)
     {
@@ -37,35 +86,45 @@ public class BackupService : Backup.BackupBase
 
         try
         {
+            // Подписываемся на событие прогресса для отправки клиенту и логирования
+            // Подписываемся на событие для отправки клиенту и логирования
+            OnProgress += async (sender, e) =>
+            {
+                _logger.LogInformation(e.StatusMessage);
+                await responseStream.WriteAsync(new BackupResponse
+                {
+                    Status = new BackupStatus
+                    {
+                        StatusMessage = e.StatusMessage,
+                        Progress = (int)e.Progress
+                    }
+                }, context.CancellationToken);
+            };
+
             var backupFolder = Path.Combine(Directory.GetCurrentDirectory(), "backup");
             if (!Directory.Exists(backupFolder))
             {
                 Directory.CreateDirectory(backupFolder);
                 _logger.LogInformation("Created backup folder: {BackupFolder}", backupFolder);
+                await ReportProgressAsync($"Created backup folder: {backupFolder}", 0);
             }
 
             filePath = Path.Combine(backupFolder, "backup.db");
 
             if (File.Exists(filePath))
             {
-                _logger.LogInformation("Deleting existing backup file: {FilePath}", filePath);
+                await ReportProgressAsync($"Deleting existing backup file: {filePath}", 0, cancellationToken: context.CancellationToken);
                 File.Delete(filePath);
             }
 
             // Проверка существования файла и создание, если отсутствует
             if (!File.Exists(filePath))
             {
-                _logger.LogInformation("Backup file {FilePath} not found. Creating temporary 100 GB file...", filePath);
-
-                await Sent($"Backup file {filePath} not found. Creating temporary 100 GB file...", responseStream);
-
-                //await BackupServiceWithDocker.Start(filePath, responseStream);
+                await ReportProgressAsync($"Backup file {filePath} not found. Creating temporary 100 GB file...", 0, cancellationToken: context.CancellationToken);
                 await backupLocal.Start(filePath, responseStream);
-
-
-                //await CreateTemporaryFileAsync(filePath, context.CancellationToken);
-                _logger.LogInformation("Temporary backup file created at {FilePath} with size 100 GB.", filePath);
+                await ReportProgressAsync($"Temporary backup file created at {filePath} with size 100 GB.", 0, cancellationToken: context.CancellationToken);
             }
+
 
             //var fileInfo = new FileInfo(filePath);
             var fileInfo = new System.IO.FileInfo(filePath);
@@ -75,24 +134,12 @@ public class BackupService : Backup.BackupBase
             for (int i = 0; i <= 100; i += 10)
             {
                 context.CancellationToken.ThrowIfCancellationRequested();
-                var status = new BackupStatus
-                {
-                    StatusMessage = $"Processing backup {request.BackupId}... {i}%",
-                    Progress = i
-                };
-                await responseStream.WriteAsync(new BackupResponse { Status = status });
+                await ReportProgressAsync($"Processing backup {request.BackupId}... {i}%", i, cancellationToken: context.CancellationToken);
                 await Task.Delay(1000, context.CancellationToken);
             }
 
             // Отправка информации о начале передачи файла
-            await responseStream.WriteAsync(new BackupResponse
-            {
-                Status = new BackupStatus
-                {
-                    StatusMessage = $"Starting file transfer for {fileInfo.Name} ({FormatFileSize(totalFileSize)})",
-                    Progress = 100
-                }
-            });
+            await ReportProgressAsync($"Starting file transfer for {fileInfo.Name} ({FormatFileSize(totalFileSize)})", 100, cancellationToken: context.CancellationToken);
 
             // Чтение и передача файла
             byte[] buffer = new byte[DefaultChunkSize];
@@ -160,6 +207,11 @@ public class BackupService : Backup.BackupBase
         {
             _logger.LogError(ex, "Unexpected error while processing backup for file {FilePath}", filePath);
             throw new RpcException(new Status(StatusCode.Internal, $"Unexpected error: {ex.Message}"));
+        }
+        finally
+        {
+            // Отписываемся от события, чтобы избежать утечек
+            OnProgress = null;
         }
     }
 

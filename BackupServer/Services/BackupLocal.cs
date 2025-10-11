@@ -7,7 +7,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Grpc.Core;
 
-
 namespace BackupServer.Services;
 
 public interface IBackupServiceLocal
@@ -15,7 +14,7 @@ public interface IBackupServiceLocal
     Task<string> Start(string outputFile, IServerStreamWriter<BackupResponse> responseStream);
 }
 
-public class BackupLocal: IBackupServiceLocal
+public class BackupLocal : IBackupServiceLocal
 {
     private readonly ILogger<BackupLocal> _logger;
     private readonly IConfiguration _configuration;
@@ -33,6 +32,8 @@ public class BackupLocal: IBackupServiceLocal
         string dbUser = settings["DbUser"];
         string dbName = settings["DbName"];
         string dbPassword = settings["DbPassword"];
+        string dbHost = settings["DbHost"] ?? "127.0.0.1";
+        string dbPort = settings["DbPort"] ?? "5432";
         string pgDumpPath = settings["PgDumpPath"];
         string backupPath = settings["BackupPath"];
 
@@ -46,7 +47,8 @@ public class BackupLocal: IBackupServiceLocal
 
         try
         {
-            _logger.LogInformation("Запускаем процесс бекапа '{DbName}' to '{FullOutputPath}'", dbName, fullOutputPath);
+            _logger.LogInformation("Запускаем процесс бэкапа '{DbName}' в '{FullOutputPath}'", dbName, fullOutputPath);
+
             await responseStream.WriteAsync(new BackupResponse
             {
                 Status = new BackupStatus
@@ -56,115 +58,112 @@ public class BackupLocal: IBackupServiceLocal
                 }
             });
 
-            // Проверка существования предыдущего бэкапа
             long previousSize = File.Exists(fullOutputPath) ? new System.IO.FileInfo(fullOutputPath).Length : 0;
             if (previousSize > 0)
             {
                 _logger.LogInformation("Previous backup size: {PreviousSize:F2} KB", previousSize / 1024.0);
             }
 
-            // Формирование команды для pg_dump
-            string pgDumpArgs = $"-U {dbUser} -F c {dbName}";
+            // Формируем команду для pg_dump (указываем хост и порт!)
+            string pgDumpArgs = $"-h {dbHost} -p {dbPort} -U {dbUser} -F c {dbName}";
+
+            // Логируем все параметры
+            _logger.LogInformation("pg_dump path: {PgDumpPath}", pgDumpPath);
+            _logger.LogInformation("pg_dump args: {PgDumpArgs}", pgDumpArgs);
+            _logger.LogInformation("Database: {DbName}, Host: {DbHost}, Port: {DbPort}, User: {DbUser}", dbName, dbHost, dbPort, dbUser);
+            _logger.LogInformation("PGPASSWORD (set? {HasPassword})", !string.IsNullOrEmpty(dbPassword));
 
             // Настройка процесса pg_dump
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            var startInfo = new ProcessStartInfo
             {
                 FileName = pgDumpPath,
                 Arguments = pgDumpArgs,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true,
-                Environment = { { "PGPASSWORD", dbPassword } } // Передача пароля через переменную окружения
+                CreateNoWindow = true
             };
 
-            using (Process process = new Process { StartInfo = startInfo })
+            // Передаём пароль в окружение
+            startInfo.Environment["PGPASSWORD"] = dbPassword ?? string.Empty;
+
+            _logger.LogInformation("Process environment contains PGPASSWORD: {ContainsPGPASSWORD}",
+                startInfo.Environment.ContainsKey("PGPASSWORD"));
+
+            using var process = new Process { StartInfo = startInfo };
+
+            _logger.LogInformation("Executing: {PgDumpPath} {PgDumpArgs}", pgDumpPath, pgDumpArgs);
+            process.Start();
+
+            long totalBytesWritten = 0;
+
+            using (var fileStream = new FileStream(fullOutputPath, FileMode.Create, FileAccess.Write, FileShare.Read))
             {
-                _logger.LogInformation("Executing pg_dump: {PgDumpPath} {PgDumpArgs}", pgDumpPath, pgDumpArgs);
-                process.Start();
-
-                long totalBytesWritten = 0;
-                using (FileStream fileStream = new FileStream(fullOutputPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+                var progressTask = Task.Run(async () =>
                 {
-                    // Запуск задачи для отображения прогресса каждые 2 секунды
-                    var progressTask = Task.Run(async () =>
+                    await Task.Delay(200);
+                    while (!process.HasExited || totalBytesWritten > 0)
                     {
-                        await Task.Delay(100); // Небольшая задержка перед началом
-                        while (!process.HasExited || totalBytesWritten > 0)
+                        _logger.LogInformation("Progress: {TotalBytesWritten:F2} KB written", totalBytesWritten / 1024.0);
+                        await responseStream.WriteAsync(new BackupResponse
                         {
-                            _logger.LogInformation("Progress: {TotalBytesWritten:F2} KB written", totalBytesWritten / 1024.0);
-                            await responseStream.WriteAsync(new BackupResponse
+                            Status = new BackupStatus
                             {
-                                Status = new BackupStatus
-                                {
-                                    StatusMessage = $"Progress: {totalBytesWritten / 1024.0:F2} KB written",
-                                    Progress = 2
-                                }
-                            });
+                                StatusMessage = $"Progress: {totalBytesWritten / 1024.0:F2} KB written",
+                                Progress = 2
+                            }
+                        });
 
-                            await Task.Delay(2000); // Обновление каждые 2 секунды
-                            if (process.HasExited && totalBytesWritten > 0) break;
-                            if (process.HasExited && process.ExitCode != 0) break;
-                        }
-                    });
-
-                    // Чтение потока вывода и запись в файл
-                    byte[] buffer = new byte[8192]; // 8KB буфер
-                    int bytesRead;
-                    while ((bytesRead = await process.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                    {
-                        await fileStream.WriteAsync(buffer, 0, bytesRead);
-                        Interlocked.Add(ref totalBytesWritten, bytesRead); // Потокобезопасное обновление
+                        await Task.Delay(2000);
+                        if (process.HasExited) break;
                     }
+                });
 
-                    // Ожидание завершения задачи прогресса
-                    await progressTask;
-                }
-
-                string error = process.StandardError.ReadToEnd();
-                process.WaitForExit();
-
-                if (process.ExitCode != 0)
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = await process.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
                 {
-                    _logger.LogError("Backup failed with exit code {ExitCode}. Error: {Error}", process.ExitCode, error);
-                    await responseStream.WriteAsync(new BackupResponse
-                    {
-                        Status = new BackupStatus
-                        {
-                            StatusMessage = $"Backup failed with exit code {process.ExitCode}. Error: {error}",
-                            Progress = -1
-                        }
-                    });
-                    throw new Exception($"Backup failed with exit code {process.ExitCode}: {error}");
+                    await fileStream.WriteAsync(buffer, 0, bytesRead);
+                    Interlocked.Add(ref totalBytesWritten, bytesRead);
                 }
 
-                // Проверка финального размера файла
-                System.IO.FileInfo fileInfo = new(fullOutputPath);
-                _logger.LogInformation("Backup completed successfully! Final backup size: {FinalSize:F2} KB, saved to: {FullOutputPath}", fileInfo.Length / 1024.0, fullOutputPath);
+                await progressTask;
+            }
+
+            string error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError("pg_dump exited with code {ExitCode}. Error output:\n{Error}", process.ExitCode, error);
                 await responseStream.WriteAsync(new BackupResponse
                 {
                     Status = new BackupStatus
                     {
-                        StatusMessage = $"Backup completed successfully! Final backup size: {fileInfo.Length / 1024.0:F2} KB",
-                        Progress = 100
+                        StatusMessage = $"Backup failed (exit code {process.ExitCode}): {error}",
+                        Progress = -1
                     }
                 });
-
-                // Сравнение с предыдущим размером
-                if (previousSize > 0)
-                {
-                    double sizeDifference = fileInfo.Length - previousSize;
-                    _logger.LogInformation("Size change: {SizeDifference:F2} KB ({ChangeDirection})",
-                        sizeDifference / 1024.0,
-                        sizeDifference > 0 ? "larger" : sizeDifference < 0 ? "smaller" : "the same");
-                }
+                throw new Exception($"pg_dump failed (code {process.ExitCode}): {error}");
             }
+
+            var fileInfo = new System.IO.FileInfo(fullOutputPath);
+            _logger.LogInformation("Backup completed successfully! Size: {FinalSize:F2} KB", fileInfo.Length / 1024.0);
+
+            await responseStream.WriteAsync(new BackupResponse
+            {
+                Status = new BackupStatus
+                {
+                    StatusMessage = $"Backup completed successfully! Size: {fileInfo.Length / 1024.0:F2} KB",
+                    Progress = 100
+                }
+            });
 
             return fullOutputPath;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Backup failed with exception: {Message}", ex.Message);
+            _logger.LogError(ex, "Backup failed: {Message}", ex.Message);
             await responseStream.WriteAsync(new BackupResponse
             {
                 Status = new BackupStatus

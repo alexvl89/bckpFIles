@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.IO;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,16 +21,16 @@ builder.Services.AddGrpc();
 builder.Services.AddSingleton<IBackupServiceLocal, BackupLocal>();
 
 
-// Настраиваем Kestrel для gRPC (HTTP/2)
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.ListenLocalhost(5001, o =>
-    {
-        o.Protocols = HttpProtocols.Http2;
-        // Для продакшена рекомендуется включить HTTPS
-        // o.UseHttps("certificate.pfx", "password");
-    });
-});
+//// Настраиваем Kestrel для gRPC (HTTP/2)
+//builder.WebHost.ConfigureKestrel(options =>
+//{
+//    options.ListenAnyIP(5001, o =>
+//    {
+//        o.Protocols = HttpProtocols.Http2;
+//        // Для продакшена рекомендуется включить HTTPS
+//        // o.UseHttps("certificate.pfx", "password");
+//    });
+//});
 
 var app = builder.Build();
 
