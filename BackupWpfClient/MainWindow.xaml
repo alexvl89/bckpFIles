@@ -1,0 +1,65 @@
+﻿<Window x:Class="BackupWpfClient.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:BackupWpfClient"
+        mc:Ignorable="d"
+        Title="Backup Client" Height="450" Width="800">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Адрес сервера -->
+        <StackPanel Orientation="Horizontal"
+                Grid.Row="0"
+                Margin="0 0 0 10">
+            <TextBlock Text="Адрес сервера:"
+                    Width="120"
+                    VerticalAlignment="Center"/>
+            <TextBox x:Name="ServerAddressBox"
+                    Width="250"
+                    Text="https://192.168.80.145:5001"/>
+        </StackPanel>
+
+        <!-- Имя базы -->
+        <StackPanel Orientation="Horizontal"
+                Grid.Row="1"
+                Margin="0 0 0 10">
+            <TextBlock Text="Имя базы:"
+                    Width="120"
+                    VerticalAlignment="Center"/>
+            <TextBox x:Name="DatabaseNameBox"
+                    Width="250"
+                    Text="backup_123"/>
+        </StackPanel>
+
+        <!-- Кнопка -->
+        <Button Grid.Row="2"
+                Content="Выполнить"
+                Width="120"
+                Height="35"
+                Click="RunBackup_Click"
+                Margin="0 0 0 10"/>
+
+        <!-- Статус -->
+        <TextBlock Grid.Row="3"
+                   x:Name="StatusText"
+                   Text="Ожидание..."
+                   FontWeight="Bold"
+                   Foreground="Gray"
+                   Margin="0 0 0 10"/>
+
+        <!-- Логи -->
+        <TextBox x:Name="LogBox"
+                 Grid.Row="4"
+                 VerticalScrollBarVisibility="Auto"
+                 TextWrapping="Wrap"
+                 IsReadOnly="True"/>
+    </Grid>
+</Window>
