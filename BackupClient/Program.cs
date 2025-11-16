@@ -2,18 +2,15 @@
 using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
-using System;
-using System.IO;
-using System.Net.Http;
-using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
-namespace BackupClient
+namespace BackupClient;
+
+class Program
 {
-    class Program
+    static async Task Main(string[] args)
     {
-        static async Task Main(string[] args)
-        {
-            using var loggerFactory = LoggerFactory.Create(builder =>
+        using var loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder.AddConsole();
                 builder.SetMinimumLevel(LogLevel.Information);
@@ -22,34 +19,44 @@ namespace BackupClient
 
             try
             {
-                AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+            var config = new ConfigurationBuilder()
+                 .SetBasePath(Directory.GetCurrentDirectory())
+                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                 .Build();
 
-                var handler = new HttpClientHandler
-                {
-                    ServerCertificateCustomValidationCallback =
+            string? serverAddress = config["GrpcServer:Address"];
+
+            AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback =
                         HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
                 };
 
-                using var channel = GrpcChannel.ForAddress("https://192.168.80.145:5001", new GrpcChannelOptions
+            System.Console.WriteLine(serverAddress);
+
+            using var channel = GrpcChannel.ForAddress(serverAddress ?? "http://localhost:5001",
+                new GrpcChannelOptions
                 {
                     HttpHandler = handler
                 });
 
-                var client = new Backup.BackupClient(channel);
-                logger.LogInformation("Requesting backup from server...");
+            var client = new Backup.BackupClient(channel);
+            logger.LogInformation("Requesting backup from server...");
 
-                // Тест Ping
-                logger.LogInformation("Тестируем Ping");
-                var pingResponse = await client.PingAsync(new PingRequest());
-                logger.LogInformation($"Ответ Ping: {pingResponse.Message}");
+            // Тест Ping
+            logger.LogInformation("Тестируем Ping");
+            var pingResponse = await client.PingAsync(new PingRequest());
+            logger.LogInformation($"Ответ Ping: {pingResponse.Message}");
 
-                // Тест CheckHealth
-                Console.WriteLine("\nTesting CheckHealth...");
-                var healthResponse = await client.CheckHealthAsync(new HealthRequest());
-                Console.WriteLine($"Health Response: {healthResponse.Status}");
+            // Тест CheckHealth
+            Console.WriteLine("\nTesting CheckHealth...");
+            var healthResponse = await client.CheckHealthAsync(new HealthRequest());
+            Console.WriteLine($"Health Response: {healthResponse.Status}");
 
-                // Вызов gRPC метода с потоковым ответом
-                using var call = client.GetBackup(new BackupRequest { BackupId = "backup_123" });
+            // Вызов gRPC метода с потоковым ответом
+            using var call = client.GetBackup(new BackupRequest { BackupId = "backup_123" });
 
                 var filePath = "received_backup.db";
                 long totalBytesReceived = 0;
@@ -102,7 +109,6 @@ namespace BackupClient
             catch (Exception ex)
             {
                 logger.LogError(ex, "Unexpected error during backup");
-            }
         }
     }
 }
