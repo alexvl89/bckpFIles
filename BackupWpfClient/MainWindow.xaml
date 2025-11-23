@@ -24,7 +24,7 @@
                     VerticalAlignment="Center"/>
             <TextBox x:Name="ServerAddressBox"
                     Width="250"
-                    Text="https://192.168.80.145:5001"/>
+                    Text=""/>
         </StackPanel>
 
         <!-- Имя базы -->

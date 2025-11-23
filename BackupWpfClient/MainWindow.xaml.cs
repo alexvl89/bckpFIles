@@ -38,10 +38,15 @@ namespace BackupWpfClient
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                 .Build();
 
-            if (!string.IsNullOrEmpty(_config["GrpcServer:Address"]))
-            {
-                ServerAddressBox.Text = _config["GrpcServer:Address"];
-            }
+            var address = _config["GrpcServer:Address"];
+            var dbName = _config["GrpcServer:DbName"];
+
+
+            if (!string.IsNullOrEmpty(address))
+                ServerAddressBox.Text = address;
+
+            if (!string.IsNullOrEmpty(dbName))
+                DatabaseNameBox.Text = dbName;
         }
 
         private async void RunBackup_Click(object sender, RoutedEventArgs e)

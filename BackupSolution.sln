@@ -17,6 +17,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{36D591C7-6
 		CreateKeys.md = CreateKeys.md
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackupWpfClient", "BackupWpfClient\BackupWpfClient.csproj", "{82F1DE9B-D663-1292-F454-BB900B63B8E4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -31,6 +33,10 @@ Global
 		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F86A95D4-198A-420B-A7A1-493BDD26747D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{82F1DE9B-D663-1292-F454-BB900B63B8E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{82F1DE9B-D663-1292-F454-BB900B63B8E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{82F1DE9B-D663-1292-F454-BB900B63B8E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{82F1DE9B-D663-1292-F454-BB900B63B8E4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
