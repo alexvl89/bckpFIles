@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -25,7 +25,32 @@ public class BackupLocal : IBackupServiceLocal
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
+    //требует проверки
     public async Task<string> Start(string outputFile, IServerStreamWriter<BackupResponse> responseStream)
+    {
+        const int maxRetries = 1;
+        Exception lastException = null;
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                return await PerformBackup(outputFile, responseStream);
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                if (attempt < maxRetries)
+                {
+                    _logger.LogWarning(ex, "Backup attempt {Attempt} failed, retrying...", attempt + 1);
+                    await Task.Delay(1000); // Wait before retry
+                }
+            }
+        }
+        // If all retries failed, throw the last exception
+        throw lastException;
+    }
+
+    private async Task<string> PerformBackup(string outputFile, IServerStreamWriter<BackupResponse> responseStream)
     {
         // Чтение настроек из appsettings.json
         var settings = _configuration.GetSection("BackupSettings");
@@ -64,8 +89,7 @@ public class BackupLocal : IBackupServiceLocal
                 _logger.LogInformation("Previous backup size: {PreviousSize:F2} KB", previousSize / 1024.0);
             }
 
-            // Формируем команду для pg_dump (указываем хост и порт!)
-            string pgDumpArgs = $"-h {dbHost} -p {dbPort} -U {dbUser} -F c {dbName}";
+            string pgDumpArgs = $"-h {dbHost} -p {dbPort} -U {dbUser} -F c --no-owner --no-acl --encoding=UTF8 -f \"{fullOutputPath}\" {dbName}";
 
             // Логируем все параметры
             _logger.LogInformation("pg_dump path: {PgDumpPath}", pgDumpPath);
@@ -95,46 +119,50 @@ public class BackupLocal : IBackupServiceLocal
             _logger.LogInformation("Executing: {PgDumpPath} {PgDumpArgs}", pgDumpPath, pgDumpArgs);
             process.Start();
 
-            long totalBytesWritten = 0;
+            // Асинхронно читаем stderr и сохраняем ошибки для логирования
+            var errorOutput = new System.Text.StringBuilder();
 
-            using (var fileStream = new FileStream(fullOutputPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+            // Асинхронно читаем stderr
+            var errorTask = Task.Run(async () =>
             {
-                var progressTask = Task.Run(async () =>
+                string err;
+                while ((err = await process.StandardError.ReadLineAsync()) != null)
                 {
-                    await Task.Delay(200);
-                    while (!process.HasExited || totalBytesWritten > 0)
+                    errorOutput.AppendLine(err);
+                    _logger.LogError(err);
+                    await responseStream.WriteAsync(new BackupResponse
                     {
-                        _logger.LogInformation("Progress: {TotalBytesWritten:F2} KB written", totalBytesWritten / 1024.0);
-                        await responseStream.WriteAsync(new BackupResponse
+                        Status = new BackupStatus
                         {
-                            Status = new BackupStatus
-                            {
-                                StatusMessage = $"Progress: {totalBytesWritten / 1024.0:F2} KB written",
-                                Progress = 2
-                            }
-                        });
-
-                        await Task.Delay(2000);
-                        if (process.HasExited) break;
-                    }
-                });
-
-                byte[] buffer = new byte[8192];
-                int bytesRead;
-                while ((bytesRead = await process.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-                {
-                    await fileStream.WriteAsync(buffer, 0, bytesRead);
-                    Interlocked.Add(ref totalBytesWritten, bytesRead);
+                            StatusMessage = err,
+                            Progress = -1
+                        }
+                    });
                 }
+            });
 
-                await progressTask;
-            }
 
-            string error = process.StandardError.ReadToEnd();
+
+            // long totalBytesWritten = 0;
+
+            // using (var fileStream = new FileStream(fullOutputPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+            // {
+            //     byte[] buffer = new byte[8192];
+            //     int bytesRead;
+            //     while ((bytesRead = await process.StandardOutput.BaseStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            //     {
+            //         await fileStream.WriteAsync(buffer, 0, bytesRead);
+            //         Interlocked.Add(ref totalBytesWritten, bytesRead);
+            //     }
+            // }
+
+            await errorTask;
             process.WaitForExit();
 
             if (process.ExitCode != 0)
             {
+                var error = errorOutput.ToString();
+
                 _logger.LogError("pg_dump exited with code {ExitCode}. Error output:\n{Error}", process.ExitCode, error);
                 await responseStream.WriteAsync(new BackupResponse
                 {

@@ -1,4 +1,3 @@
-using BackupServer.Services;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using System;
@@ -6,9 +5,11 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace BackupServer;
+namespace BackupServer.Services;
 
-// Класс для передачи данных о прогрессе
+/// <summary>
+/// Класс для передачи данных о прогрессе
+/// </summary>
 public class BackupProgressEventArgs : EventArgs
 {
     public string StatusMessage { get; }
@@ -172,7 +173,7 @@ public class BackupService : Backup.BackupBase
                 totalBytesRead += bytesRead;
 
                 // Логирование прогресса каждые ~10%
-                if (totalFileSize > 0 && (totalBytesRead * 10 / totalFileSize) > ((totalBytesRead - bytesRead) * 10 / totalFileSize))
+                if (totalFileSize > 0 && totalBytesRead * 10 / totalFileSize > (totalBytesRead - bytesRead) * 10 / totalFileSize)
                 {
                     _logger.LogInformation("Backup transfer progress: {Progress:F1}% ({Bytes:F2} GB of {Total:F2} GB)",
                         (double)totalBytesRead / totalFileSize * 100,
@@ -240,7 +241,7 @@ public class BackupService : Backup.BackupBase
                 await fs.WriteAsync(buffer, 0, writeSize, cancellationToken);
                 bytesWritten += writeSize;
 
-                if ((bytesWritten * 10 / targetFileSize) > ((bytesWritten - writeSize) * 10 / targetFileSize))
+                if (bytesWritten * 10 / targetFileSize > (bytesWritten - writeSize) * 10 / targetFileSize)
                 {
                     _logger.LogInformation("Temporary file creation progress: {Progress:F1}% ({Bytes:F2} GB of 100 GB)",
                         (double)bytesWritten / targetFileSize * 100,
